@@ -1,0 +1,80 @@
+{
+  "formatSpecification": {
+    "EngramProfile": {
+      "id": "string - unique identifier",
+      "name": "string - profile name",
+      "role": "string - professional role or title",
+      "description": "string - brief description of the person",
+      "tags": ["array of strings - categorization tags"],
+      "enrichments": [
+        {
+          "id": "string - unique identifier for the enrichment",
+          "title": "string - enrichment title",
+          "timestamp": "string - ISO 8601 format timestamp",
+          "content": "string - enrichment content (supports markdown)"
+        }
+      ]
+    }
+  },
+  "sample": {
+    "profiles": [
+      {
+        "id": "1",
+        "name": "Sarah Chen",
+        "role": "AI Research Lead",
+        "description": "Pioneering researcher in neural architecture search and transformer optimization. Known for breakthrough work in efficient model compression.",
+        "tags": ["AI", "Research", "Machine Learning", "NLP"],
+        "enrichments": [
+          {
+            "id": "e1",
+            "title": "Key Achievement",
+            "timestamp": "2024-03-15T10:30:00Z",
+            "content": "Led the development of **QuantumTransformer**, achieving 95% accuracy with 10x fewer parameters than GPT-3."
+          },
+          {
+            "id": "e2",
+            "title": "Recent Insight",
+            "timestamp": "2024-03-20T14:45:00Z",
+            "content": "Discovered that *attention head pruning* can be dynamically adjusted during inference for 40% speed improvement."
+          }
+        ]
+      },
+      {
+        "id": "2",
+        "name": "Marcus Rodriguez",
+        "role": "Hardware Engineer",
+        "description": "Expert in high-performance computing and custom ASIC design for AI workloads. Specializes in neuromorphic chip architectures.",
+        "tags": ["Hardware", "ASIC", "Performance", "Architecture"],
+        "enrichments": [
+          {
+            "id": "e3",
+            "title": "Hardware Innovation",
+            "timestamp": "2024-03-18T09:00:00Z",
+            "content": "Designed custom **TPU v5** architecture with novel memory hierarchy reducing latency by 60%."
+          }
+        ]
+      },
+      {
+        "id": "3",
+        "name": "Dr. Amelia Foster",
+        "role": "Data Scientist",
+        "description": "Specializes in large-scale data pipeline optimization and real-time analytics. Expert in distributed computing frameworks.",
+        "tags": ["Data Science", "Analytics", "Pipeline", "Big Data"],
+        "enrichments": [
+          {
+            "id": "e4",
+            "title": "Pipeline Optimization",
+            "timestamp": "2024-03-22T11:15:00Z",
+            "content": "Implemented distributed processing pipeline handling **100TB daily** with sub-second latency using Apache Spark and Kafka."
+          },
+          {
+            "id": "e5",
+            "title": "Analysis Framework",
+            "timestamp": "2024-03-25T16:30:00Z",
+            "content": "Created `RealTimeML` framework for streaming ML predictions at scale."
+          }
+        ]
+      }
+    ]
+  }
+}

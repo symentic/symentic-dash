@@ -1,21 +1,10 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import './EngramProfileDashboard.css'
+import { dynamoDbService } from '../services/dynamodb'
 
-interface Enrichment {
-  id: string
-  title: string
-  timestamp: string
-  content: string
-}
+import type { EngramProfile } from '../services/dynamodb'
 
-interface EngramProfile {
-  id: string
-  name: string
-  role: string
-  description: string
-  tags: string[]
-  enrichments: Enrichment[]
-}
+// type Enrichment = EngramProfile['enrichments'][0]
 
 interface NewEngramForm {
   name: string
@@ -157,10 +146,12 @@ const EngramProfileDashboard: React.FC = () => {
   const [expandedEnrichments, setExpandedEnrichments] = useState<{ [key: string]: boolean }>({})
   const [showNewEngramModal, setShowNewEngramModal] = useState(false)
   const [showEditEngramModal, setShowEditEngramModal] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [showDetailedView, setShowDetailedView] = useState(false)
   const [selectedProfile, setSelectedProfile] = useState<EngramProfile | null>(null)
   const [showEnrichmentModal, setShowEnrichmentModal] = useState(false)
-  const [selectedProfileForEnrichment, setSelectedProfileForEnrichment] = useState<string | null>(null)
+  const [_selectedProfileForEnrichment, setSelectedProfileForEnrichment] = useState<string | null>(null)
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
 
   // Form state for new engram
@@ -184,6 +175,47 @@ const EngramProfileDashboard: React.FC = () => {
     tags: [],
     newTag: ''
   })
+
+  // Form state for enrichments
+  const [enrichmentForm, setEnrichmentForm] = useState({
+    title: '',
+    content: ''
+  })
+  const [editingEnrichmentId, setEditingEnrichmentId] = useState<string | null>(null)
+  const [showEditEnrichmentModal, setShowEditEnrichmentModal] = useState(false)
+
+  // Alert and Confirmation Modal States
+  const [alertModal, setAlertModal] = useState<{
+    show: boolean
+    message: string
+    type?: 'info' | 'error' | 'success'
+  }>({ show: false, message: '', type: 'info' })
+
+  const [confirmModal, setConfirmModal] = useState<{
+    show: boolean
+    message: string
+    onConfirm: () => void
+    onCancel?: () => void
+  }>({ show: false, message: '', onConfirm: () => {}, onCancel: () => {} })
+
+  // Fetch profiles from DynamoDB on component mount
+  useEffect(() => {
+    const fetchProfiles = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const fetchedProfiles = await dynamoDbService.queryProfiles()
+        setProfiles(fetchedProfiles)
+      } catch (err) {
+        setError('Failed to fetch profiles from DynamoDB')
+        console.error('Error fetching profiles:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchProfiles()
+  }, [])
 
   // Get all unique tags
   const allTags = useMemo(() => {
@@ -242,24 +274,68 @@ const EngramProfileDashboard: React.FC = () => {
       .replace(/`(.*?)`/g, '<code>$1</code>')
   }
 
-  const addEnrichmentToProfile = (profileId: string, enrichment: Omit<Enrichment, 'id'>) => {
-    const newEnrichment: Enrichment = {
+  // Custom alert and confirm functions
+  const showAlert = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
+    setAlertModal({ show: true, message, type })
+  }
+
+  const showConfirm = (message: string, onConfirm: () => void, onCancel?: () => void) => {
+    setConfirmModal({
+      show: true,
+      message,
+      onConfirm: () => {
+        setConfirmModal({ show: false, message: '', onConfirm: () => {} })
+        onConfirm()
+      },
+      onCancel: () => {
+        setConfirmModal({ show: false, message: '', onConfirm: () => {} })
+        onCancel?.()
+      }
+    })
+  }
+
+  const addEnrichmentToProfile = async (profileId: string, enrichment: Omit<EngramProfile['enrichments'][0], 'id'>) => {
+    const newEnrichment: EngramProfile['enrichments'][0] = {
       ...enrichment,
       id: `${profileId}-${Date.now()}`
     }
     
-    setProfiles(prev => prev.map(profile => 
-      profile.id === profileId 
-        ? { ...profile, enrichments: [newEnrichment, ...profile.enrichments] }
-        : profile
-    ))
-    
-    // Update selected profile if it's currently being viewed
-    if (selectedProfile && selectedProfile.id === profileId) {
-      setSelectedProfile(prev => prev ? {
-        ...prev,
-        enrichments: [newEnrichment, ...prev.enrichments]
-      } : null)
+    try {
+      // Get the current profile
+      const profile = profiles.find(p => p.id === profileId)
+      if (!profile) {
+        showAlert('Profile not found', 'error')
+        return
+      }
+      
+      console.log('Adding enrichment to profile:', profileId)
+      console.log('Current enrichments:', profile.enrichments)
+      
+      // Update enrichments array
+      const updatedEnrichments = [newEnrichment, ...profile.enrichments]
+      console.log('Updated enrichments:', updatedEnrichments)
+      
+      // Update in DynamoDB
+      const updatedProfile = await dynamoDbService.updateProfile(profileId, {
+        enrichments: updatedEnrichments
+      })
+      
+      if (updatedProfile) {
+        // Update local state
+        setProfiles(prev => prev.map(p => 
+          p.id === profileId ? updatedProfile : p
+        ))
+        
+        // Update selected profile if it's currently being viewed
+        if (selectedProfile && selectedProfile.id === profileId) {
+          setSelectedProfile(updatedProfile)
+        }
+      } else {
+        showAlert('Failed to add enrichment. Please try again.', 'error')
+      }
+    } catch (error) {
+      console.error('Error adding enrichment:', error)
+      showAlert(`Failed to add enrichment: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
     }
   }
 
@@ -332,42 +408,49 @@ const EngramProfileDashboard: React.FC = () => {
     })
   }
 
-  const handleSubmitNewEngram = (e: React.FormEvent) => {
+  const handleSubmitNewEngram = async (e: React.FormEvent) => {
     e.preventDefault()
     
     // Basic validation
     if (!newEngramForm.name.trim() || !newEngramForm.role.trim() || !newEngramForm.description.trim()) {
-      alert('Please fill in all required fields (Name, Role, Description)')
+      showAlert('Please fill in all required fields (Name, Role, Description)', 'error')
       return
     }
 
-    // Create new profile
-    const newProfile: EngramProfile = {
-      id: `${Date.now()}`,
+    // Create new profile object
+    const profileData = {
       name: newEngramForm.name.trim(),
       role: newEngramForm.role.trim(),
       description: newEngramForm.description.trim(),
       tags: newEngramForm.tags,
-      enrichments: []
+      enrichments: [] as Array<{id: string; title: string; timestamp: string; content: string}>
     }
 
     // Add initial enrichment if provided
     if (newEngramForm.initialEnrichment.title.trim() && newEngramForm.initialEnrichment.content.trim()) {
-      const initialEnrichment: Enrichment = {
-        id: `${newProfile.id}-1`,
+      const initialEnrichment = {
+        id: `${Date.now()}-1`,
         title: newEngramForm.initialEnrichment.title.trim(),
         timestamp: new Date().toISOString(),
         content: newEngramForm.initialEnrichment.content.trim()
       }
-      newProfile.enrichments.push(initialEnrichment)
+      profileData.enrichments.push(initialEnrichment)
     }
 
-    // Add to profiles
-    setProfiles(prev => [newProfile, ...prev])
-    
-    // Reset form and close modal
-    resetNewEngramForm()
-    setShowNewEngramModal(false)
+    try {
+      // Create profile in DynamoDB
+      const createdProfile = await dynamoDbService.createProfile(profileData)
+      
+      // Add to local state
+      setProfiles(prev => [createdProfile, ...prev])
+      
+      // Reset form and close modal
+      resetNewEngramForm()
+      setShowNewEngramModal(false)
+    } catch (error) {
+      console.error('Error creating profile:', error)
+      showAlert('Failed to create profile. Please try again.', 'error')
+    }
   }
 
   // Edit Engram Form Functions
@@ -429,59 +512,186 @@ const EngramProfileDashboard: React.FC = () => {
     setEditingProfileId(null)
   }
 
-  const handleSubmitEditEngram = (e: React.FormEvent) => {
+  const handleSubmitEditEngram = async (e: React.FormEvent) => {
     e.preventDefault()
     
     // Basic validation
     if (!editEngramForm.name.trim() || !editEngramForm.role.trim() || !editEngramForm.description.trim()) {
-      alert('Please fill in all required fields (Name, Role, Description)')
+      showAlert('Please fill in all required fields (Name, Role, Description)', 'error')
       return
     }
 
     if (!editingProfileId) {
-      alert('No profile selected for editing')
+      showAlert('No profile selected for editing', 'error')
       return
     }
 
-    // Update the profile
-    setProfiles(prev => prev.map(profile => 
-      profile.id === editingProfileId 
-        ? {
-            ...profile,
-            name: editEngramForm.name.trim(),
-            role: editEngramForm.role.trim(),
-            description: editEngramForm.description.trim(),
-            tags: editEngramForm.tags
-          }
-        : profile
-    ))
-    
-    // Update selected profile if it's currently being viewed
-    if (selectedProfile && selectedProfile.id === editingProfileId) {
-      setSelectedProfile(prev => prev ? {
-        ...prev,
-        name: editEngramForm.name.trim(),
-        role: editEngramForm.role.trim(),
-        description: editEngramForm.description.trim(),
-        tags: editEngramForm.tags
-      } : null)
+    const updates = {
+      name: editEngramForm.name.trim(),
+      role: editEngramForm.role.trim(),
+      description: editEngramForm.description.trim(),
+      tags: editEngramForm.tags
     }
-    
-    // Reset form and close modal
-    resetEditEngramForm()
-    setShowEditEngramModal(false)
+
+    try {
+      // Update profile in DynamoDB
+      const updatedProfile = await dynamoDbService.updateProfile(editingProfileId, updates)
+      
+      if (updatedProfile) {
+        // Update local state
+        setProfiles(prev => prev.map(profile => 
+          profile.id === editingProfileId ? updatedProfile : profile
+        ))
+        
+        // Update selected profile if it's currently being viewed
+        if (selectedProfile && selectedProfile.id === editingProfileId) {
+          setSelectedProfile(updatedProfile)
+        }
+        
+        // Reset form and close modal
+        resetEditEngramForm()
+        setShowEditEngramModal(false)
+      } else {
+        showAlert('Failed to update profile. Please try again.', 'error')
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error)
+      showAlert('Failed to update profile. Please try again.', 'error')
+    }
   }
 
-  const handleDeleteProfile = (profileId: string) => {
+  const handleDeleteProfile = async (profileId: string) => {
     const profile = profiles.find(p => p.id === profileId)
-    if (profile && window.confirm(`Are you sure you want to delete ${profile.name}'s engram profile? This action cannot be undone.`)) {
-      setProfiles(prev => prev.filter(p => p.id !== profileId))
+    if (profile) {
+      showConfirm(
+        `Are you sure you want to delete ${profile.name}'s engram profile? This action cannot be undone.`,
+        async () => {
+          try {
+            // Delete from DynamoDB
+            const success = await dynamoDbService.deleteProfile(profileId)
+            
+            if (success) {
+              // Remove from local state
+              setProfiles(prev => prev.filter(p => p.id !== profileId))
+              
+              // Close detailed view if we're deleting the currently viewed profile
+              if (selectedProfile && selectedProfile.id === profileId) {
+                closeProfileDetails()
+              }
+              showAlert(`${profile.name}'s profile has been deleted successfully.`, 'success')
+            } else {
+              showAlert('Failed to delete profile. Please try again.', 'error')
+            }
+          } catch (error) {
+            console.error('Error deleting profile:', error)
+            showAlert('Failed to delete profile. Please try again.', 'error')
+          }
+        }
+      )
+    }
+  }
+
+  // Enrichment functions
+  const handleSubmitEnrichment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!enrichmentForm.title.trim() || !enrichmentForm.content.trim()) {
+      showAlert('Please fill in both title and content', 'error')
+      return
+    }
+    
+    // Use _selectedProfileForEnrichment or fallback to selectedProfile.id
+    const profileId = _selectedProfileForEnrichment || selectedProfile?.id
+    
+    if (profileId) {
+      console.log('Selected profile for enrichment:', profileId)
+      await addEnrichmentToProfile(profileId, {
+        title: enrichmentForm.title.trim(),
+        content: enrichmentForm.content.trim(),
+        timestamp: new Date().toISOString()
+      })
       
-      // Close detailed view if we're deleting the currently viewed profile
-      if (selectedProfile && selectedProfile.id === profileId) {
-        closeProfileDetails()
+      // Reset form and close modal
+      setEnrichmentForm({ title: '', content: '' })
+      setShowEnrichmentModal(false)
+      setSelectedProfileForEnrichment(null)
+    } else {
+      console.error('No selected profile found or profile ID missing')
+      console.log('_selectedProfileForEnrichment:', _selectedProfileForEnrichment)
+      console.log('selectedProfile:', selectedProfile)
+      showAlert('No profile selected. Please try again.', 'error')
+    }
+  }
+
+  const handleEditEnrichment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!enrichmentForm.title.trim() || !enrichmentForm.content.trim()) {
+      showAlert('Please fill in both title and content', 'error')
+      return
+    }
+    
+    if (selectedProfile && editingEnrichmentId) {
+      // Update the enrichment
+      const updatedEnrichments = selectedProfile.enrichments.map(enrichment =>
+        enrichment.id === editingEnrichmentId
+          ? { ...enrichment, title: enrichmentForm.title.trim(), content: enrichmentForm.content.trim() }
+          : enrichment
+      )
+      
+      // Update in DynamoDB
+      const updatedProfile = await dynamoDbService.updateProfile(selectedProfile.id, {
+        enrichments: updatedEnrichments
+      })
+      
+      if (updatedProfile) {
+        // Update local state
+        setProfiles(prev => prev.map(p => 
+          p.id === selectedProfile.id ? updatedProfile : p
+        ))
+        setSelectedProfile(updatedProfile)
+        
+        // Reset and close
+        setEnrichmentForm({ title: '', content: '' })
+        setEditingEnrichmentId(null)
+        setShowEditEnrichmentModal(false)
       }
     }
+  }
+
+  const handleDeleteEnrichment = async (enrichmentId: string) => {
+    if (selectedProfile) {
+      const enrichment = selectedProfile.enrichments.find(e => e.id === enrichmentId)
+      showConfirm(
+        `Are you sure you want to delete the enrichment "${enrichment?.title || 'this enrichment'}"?`,
+        async () => {
+          const updatedEnrichments = selectedProfile.enrichments.filter(e => e.id !== enrichmentId)
+          
+          const updatedProfile = await dynamoDbService.updateProfile(selectedProfile.id, {
+            enrichments: updatedEnrichments
+          })
+          
+          if (updatedProfile) {
+            setProfiles(prev => prev.map(p => 
+              p.id === selectedProfile.id ? updatedProfile : p
+            ))
+            setSelectedProfile(updatedProfile)
+            showAlert('Enrichment deleted successfully.', 'success')
+          } else {
+            showAlert('Failed to delete enrichment. Please try again.', 'error')
+          }
+        }
+      )
+    }
+  }
+
+  const openEditEnrichmentModal = (enrichment: EngramProfile['enrichments'][0]) => {
+    setEnrichmentForm({
+      title: enrichment.title,
+      content: enrichment.content
+    })
+    setEditingEnrichmentId(enrichment.id)
+    setShowEditEnrichmentModal(true)
   }
 
   return (
@@ -513,7 +723,7 @@ const EngramProfileDashboard: React.FC = () => {
         <div className="tag-filters">
           <div className="tag-filter-label">Filter by tags:</div>
           <div className="tag-list">
-            {allTags.map(tag => (
+            {allTags.map((tag) => (
               <button
                 key={tag}
                 className={`tag-filter ${selectedTags.includes(tag) ? 'active' : ''}`}
@@ -526,42 +736,60 @@ const EngramProfileDashboard: React.FC = () => {
         </div>
       </div>
 
-      <div className="profiles-grid">
-        {filteredProfiles.map(profile => (
-          <div 
-            key={profile.id} 
-            className="profile-card glass-card clickable"
-            onClick={() => openProfileDetails(profile)}
-          >
-            <div className="profile-header">
-              <div className="profile-info">
-                <h3 className="profile-name">{profile.name}</h3>
-                <div className="profile-role">{profile.role}</div>
-                <p className="profile-description">{profile.description}</p>
-              </div>
-            </div>
-
-            <div className="profile-tags">
-              {profile.tags.map(tag => (
-                <span key={tag} className="profile-tag">{tag}</span>
-              ))}
-            </div>
-
-            <div className="profile-enrichments-summary">
-              <div className="enrichments-count">
-                {profile.enrichments.length} enrichment{profile.enrichments.length !== 1 ? 's' : ''}
-              </div>
-              <div className="click-to-view">Click to see enrichments</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {filteredProfiles.length === 0 && (
-        <div className="no-results">
-          <div className="no-results-icon">∅</div>
-          <div className="no-results-text">No profiles match your search criteria</div>
+      {loading ? (
+        <div className="loading-container">
+          <div className="loading-spinner">Loading profiles...</div>
         </div>
+      ) : error ? (
+        <div className="error-container">
+          <div className="error-message">{error}</div>
+          <button 
+            className="btn-primary"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="profiles-grid">
+            {filteredProfiles.map(profile => (
+              <div 
+                key={profile.id} 
+                className="profile-card glass-card clickable"
+                onClick={() => openProfileDetails(profile)}
+              >
+                <div className="profile-header">
+                  <div className="profile-info">
+                    <h3 className="profile-name">{profile.name}</h3>
+                    <div className="profile-role">{profile.role}</div>
+                    <p className="profile-description">{profile.description}</p>
+                  </div>
+                </div>
+
+                <div className="profile-tags">
+                  {profile.tags.map((tag) => (
+                    <span key={`${profile.id}-${tag}`} className="profile-tag">{tag}</span>
+                  ))}
+                </div>
+
+                <div className="profile-enrichments-summary">
+                  <div className="enrichments-count">
+                    {profile.enrichments.length} enrichment{profile.enrichments.length !== 1 ? 's' : ''}
+                  </div>
+                  <div className="click-to-view">Click to see enrichments</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {filteredProfiles.length === 0 && (
+            <div className="no-results">
+              <div className="no-results-icon">∅</div>
+              <div className="no-results-text">No profiles match your search criteria</div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Detailed Profile View Modal */}
@@ -576,8 +804,8 @@ const EngramProfileDashboard: React.FC = () => {
                   <p className="profile-description-detailed">{selectedProfile.description}</p>
                   
                   <div className="profile-tags-detailed">
-                    {selectedProfile.tags.map(tag => (
-                      <span key={tag} className="profile-tag">{tag}</span>
+                    {selectedProfile.tags.map((tag) => (
+                      <span key={`${selectedProfile.id}-${tag}`} className="profile-tag">{tag}</span>
                     ))}
                   </div>
                 </div>
@@ -596,10 +824,11 @@ const EngramProfileDashboard: React.FC = () => {
                   onClick={() => {
                     setSelectedProfileForEnrichment(selectedProfile.id)
                     setShowEnrichmentModal(true)
+                    setEnrichmentForm({ title: '', content: '' })
                   }}
                   title="Add enrichment"
                 >
-                  + add memory
+                  + add enrichment
                 </button>
                 <button
                   className="delete-profile-btn"
@@ -647,12 +876,34 @@ const EngramProfileDashboard: React.FC = () => {
                       </div>
                       
                       {expandedEnrichments[enrichment.id] && (
-                        <div 
-                          className="enrichment-content"
-                          dangerouslySetInnerHTML={{ 
-                            __html: renderMarkdown(enrichment.content) 
-                          }}
-                        />
+                        <>
+                          <div 
+                            className="enrichment-content"
+                            dangerouslySetInnerHTML={{ 
+                              __html: renderMarkdown(enrichment.content) 
+                            }}
+                          />
+                          <div className="enrichment-actions">
+                            <button
+                              className="edit-enrichment-btn"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openEditEnrichmentModal(enrichment)
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="delete-enrichment-btn"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteEnrichment(enrichment.id)
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </>
                       )}
                     </div>
                   ))}
@@ -736,8 +987,8 @@ const EngramProfileDashboard: React.FC = () => {
                 
                 {newEngramForm.tags.length > 0 && (
                   <div className="form-tags">
-                    {newEngramForm.tags.map(tag => (
-                      <span key={tag} className="form-tag">
+                    {newEngramForm.tags.map((tag) => (
+                      <span key={`new-${tag}`} className="form-tag">
                         {tag}
                         <button 
                           type="button" 
@@ -863,8 +1114,8 @@ const EngramProfileDashboard: React.FC = () => {
                 
                 {editEngramForm.tags.length > 0 && (
                   <div className="form-tags">
-                    {editEngramForm.tags.map(tag => (
-                      <span key={tag} className="form-tag">
+                    {editEngramForm.tags.map((tag) => (
+                      <span key={`edit-${tag}`} className="form-tag">
                         {tag}
                         <button 
                           type="button" 
@@ -901,10 +1152,186 @@ const EngramProfileDashboard: React.FC = () => {
 
       {showEnrichmentModal && (
         <div className="modal-overlay" onClick={() => setShowEnrichmentModal(false)}>
-          <div className="modal glass-card" onClick={(e) => e.stopPropagation()}>
-            <h3>Add Enrichment</h3>
-            <p>Enrichment modal implementation coming soon...</p>
-            <button onClick={() => setShowEnrichmentModal(false)}>Close</button>
+          <div className="modal glass-card enrichment-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="gradient-text">Add Enrichment</h3>
+              <button 
+                className="modal-close-btn"
+                onClick={() => {
+                  setShowEnrichmentModal(false)
+                  setEnrichmentForm({ title: '', content: '' })
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            <form onSubmit={handleSubmitEnrichment} className="enrichment-form">
+              <div className="form-section">
+                <label className="form-label">Title *</label>
+                <input
+                  type="text"
+                  value={enrichmentForm.title}
+                  onChange={(e) => setEnrichmentForm(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="Enter enrichment title"
+                  className="form-input glass-card"
+                  required
+                />
+              </div>
+              
+              <div className="form-section">
+                <label className="form-label">Content *</label>
+                <textarea
+                  value={enrichmentForm.content}
+                  onChange={(e) => setEnrichmentForm(prev => ({ ...prev, content: e.target.value }))}
+                  placeholder="Enter enrichment content (supports markdown)"
+                  className="form-textarea glass-card"
+                  rows={8}
+                  required
+                />
+              </div>
+              
+              <div className="form-actions">
+                <button type="submit" className="btn-primary">
+                  Add Enrichment
+                </button>
+                <button 
+                  type="button" 
+                  className="btn-secondary"
+                  onClick={() => {
+                    setShowEnrichmentModal(false)
+                    setEnrichmentForm({ title: '', content: '' })
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      {showEditEnrichmentModal && (
+        <div className="modal-overlay" onClick={() => setShowEditEnrichmentModal(false)}>
+          <div className="modal glass-card enrichment-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="gradient-text">Edit Enrichment</h3>
+              <button 
+                className="modal-close-btn"
+                onClick={() => {
+                  setShowEditEnrichmentModal(false)
+                  setEnrichmentForm({ title: '', content: '' })
+                  setEditingEnrichmentId(null)
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            <form onSubmit={handleEditEnrichment} className="enrichment-form">
+              <div className="form-section">
+                <label className="form-label">Title *</label>
+                <input
+                  type="text"
+                  value={enrichmentForm.title}
+                  onChange={(e) => setEnrichmentForm(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="Enter enrichment title"
+                  className="form-input glass-card"
+                  required
+                />
+              </div>
+              
+              <div className="form-section">
+                <label className="form-label">Content *</label>
+                <textarea
+                  value={enrichmentForm.content}
+                  onChange={(e) => setEnrichmentForm(prev => ({ ...prev, content: e.target.value }))}
+                  placeholder="Enter enrichment content (supports markdown)"
+                  className="form-textarea glass-card"
+                  rows={8}
+                  required
+                />
+              </div>
+              
+              <div className="form-actions">
+                <button type="submit" className="btn-primary">
+                  Save Changes
+                </button>
+                <button 
+                  type="button" 
+                  className="btn-secondary"
+                  onClick={() => {
+                    setShowEditEnrichmentModal(false)
+                    setEnrichmentForm({ title: '', content: '' })
+                    setEditingEnrichmentId(null)
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Alert Modal */}
+      {alertModal.show && (
+        <div className="modal-overlay" onClick={() => setAlertModal({ show: false, message: '', type: 'info' })}>
+          <div className="modal glass-card alert-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className={`gradient-text ${alertModal.type}`}>
+                {alertModal.type === 'error' ? 'Error' : alertModal.type === 'success' ? 'Success' : 'Notice'}
+              </h3>
+              <button 
+                className="modal-close-btn"
+                onClick={() => setAlertModal({ show: false, message: '', type: 'info' })}
+              >
+                ×
+              </button>
+            </div>
+            <div className="alert-content">
+              <div className={`alert-icon ${alertModal.type}`}>
+                {alertModal.type === 'error' ? '⚠️' : alertModal.type === 'success' ? '✅' : 'ℹ️'}
+              </div>
+              <p className="alert-message">{alertModal.message}</p>
+            </div>
+            <div className="form-actions">
+              <button 
+                className="btn-primary"
+                onClick={() => setAlertModal({ show: false, message: '', type: 'info' })}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Confirmation Modal */}
+      {confirmModal.show && (
+        <div className="modal-overlay">
+          <div className="modal glass-card confirm-modal">
+            <div className="modal-header">
+              <h3 className="gradient-text">Confirm Action</h3>
+            </div>
+            <div className="confirm-content">
+              <div className="confirm-icon">❓</div>
+              <p className="confirm-message">{confirmModal.message}</p>
+            </div>
+            <div className="form-actions">
+              <button 
+                className="btn-secondary"
+                onClick={() => confirmModal.onCancel?.()}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn-primary"
+                onClick={() => confirmModal.onConfirm()}
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}

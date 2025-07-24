@@ -865,4 +865,196 @@
   background: rgba(0, 245, 255, 0.1);
   color: var(--text-accent);
   border-color: var(--text-accent);
+}
+
+/* Loading and Error States */
+.loading-container,
+.error-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+  gap: 1rem;
+}
+
+.loading-spinner {
+  font-size: 1.2rem;
+  color: var(--text-secondary);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.error-message {
+  color: #ff6b6b;
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.error-container .btn-primary {
+  background: #ff6b6b;
+}
+
+.error-container .btn-primary:hover {
+  background: #ff5252;
+}
+
+/* Enrichment Actions */
+.enrichment-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--glass-border);
+}
+
+.edit-enrichment-btn,
+.delete-enrichment-btn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.edit-enrichment-btn:hover {
+  background: rgba(0, 245, 255, 0.1);
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}
+
+.delete-enrichment-btn:hover {
+  background: rgba(255, 107, 107, 0.1);
+  color: #ff6b6b;
+  border-color: #ff6b6b;
+}
+
+/* Enrichment Modal */
+.enrichment-modal {
+  max-width: 600px;
+  max-height: 90vh;
+}
+
+.enrichment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.875rem;
+  resize: vertical;
+  min-height: 120px;
+  transition: var(--transition-smooth);
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--text-accent);
+  box-shadow: 0 0 20px rgba(0, 245, 255, 0.1);
+}
+
+.form-textarea::placeholder {
+  color: rgba(155, 155, 170, 0.5);
+}
+
+.btn-secondary {
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Alert and Confirmation Modal Styles */
+.alert-modal,
+.confirm-modal {
+  max-width: 450px;
+  width: 90%;
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+.alert-content,
+.confirm-content {
+  padding: 2rem;
+  text-align: center;
+}
+
+.alert-icon,
+.confirm-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  display: block;
+}
+
+.alert-icon.error {
+  filter: hue-rotate(-10deg) saturate(1.5);
+}
+
+.alert-icon.success {
+  filter: hue-rotate(85deg) saturate(1.2);
+}
+
+.alert-icon.info {
+  filter: hue-rotate(180deg);
+}
+
+.alert-message,
+.confirm-message {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.gradient-text.error {
+  background: linear-gradient(135deg, #ff4444, #ff6666);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text.success {
+  background: linear-gradient(135deg, #44ff44, #66ff66);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text.info {
+  background: linear-gradient(135deg, #4444ff, #6666ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 } 

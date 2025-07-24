@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import './App.css'
 import EngramProfileDashboard from './components/EngramProfileDashboard'
 
 function App() {
-  const [activeAgents, setActiveAgents] = useState(12)
+  const [activeAgents] = useState(12)
   const [totalEnrichments, setTotalEnrichments] = useState(47892)
   const [apiCalls, setApiCalls] = useState(1254)
   const [currentView, setCurrentView] = useState('dashboard')
